@@ -95,8 +95,3 @@ slurmtail resume
 # Clean up resume files
 slurmtail clean
 ```
-
-
-## License
-
-Planned MIT; will be added shortly.
