@@ -10,7 +10,7 @@ Because I kept finding myself writing small scripts to help me monitor SLURM job
 - **Submit & Monitor**: Submit SLURM batch jobs and automatically start tailing their output logs.
 - **Resume Capability**: Resume monitoring a previously submitted job's log file.
 - **Smart Log Detection**: Automatically extracts log file patterns from SLURM batch scripts (though this is a bit janky ATM).
-- **Timeout Handling**: Configurable timeouts for both file creation and monitoring.
+- **Timeout Handling**: Configurable timeout for both file creation and monitoring.
 - **Last 150 Lines**: Shows the last 150 lines when starting to monitor an existing log file.
 
 ## Installation
@@ -34,7 +34,7 @@ slurmtail run <script.sh> [--timeout SECONDS]
 This will:
 1. Submit your SLURM batch script using `sbatch`.
 2. Extract the log output pattern from the script (e.g., `#SBATCH --output output.%j.log`).
-3. Wait for the log file to be created (or until the timeout).
+3. Wait for the log file to be created (or until TIMEOUT seconds).
 4. Start monitoring the log file, showing new content as it's written.
 5. Create a hidden resume file (`._slurmtail`) for later resumption.
 
@@ -74,7 +74,7 @@ Your SLURM batch script must include an output directive, such as:
 The `%j` placeholder will be automatically replaced with the actual job ID.
 
 > [!NOTE]  
-> Support for templated job names in the output file (e.g., the `%x` in `output.%x.%j.log`) are not yet supported. This will be added soon (probably).
+> Support for templated job names in the output file (e.g., the `%x` in `output.%x.%j.log`) is not yet implemented. This will be added soon (probably).
 
 ## Options
 
