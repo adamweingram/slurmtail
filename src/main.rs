@@ -213,9 +213,36 @@ fn extract_log_output_pattern(script_path: &Path) -> Result<String, Box<dyn std:
     Err("No SBATCH output directive found in script".into())
 }
 
-// Take a SLURM-formatted output path and format it using a known jobid
-fn format_log_output_string(logfile_pattern_string: String, jobid: u64) -> String {
-    logfile_pattern_string.replace("%j", &jobid.to_string())
+// Extract job name from SLURM script
+fn extract_job_name(script_path: &Path) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let content = read_to_string(script_path)?;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with("#SBATCH --job-name") || line.starts_with("#SBATCH -J") {
+            // Handle both "--job-name=value" and "--job-name value" formats
+            if line.contains('=') {
+                if let Some(job_name_part) = line.split('=').nth(1) {
+                    return Ok(Some(job_name_part.to_string()));
+                }
+            } else if let Some(job_name_part) = line.split_whitespace().nth(2) {
+                return Ok(Some(job_name_part.to_string()));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+// Take a SLURM-formatted output path and format it using a known jobid and optional job name
+fn format_log_output_string(logfile_pattern_string: String, jobid: u64, job_name: Option<&String>) -> String {
+    let mut result = logfile_pattern_string.replace("%j", &jobid.to_string());
+    
+    if let Some(name) = job_name {
+        result = result.replace("%x", name);
+    }
+    
+    result
 }
 
 // Take a now fully formed logfile path and transform it into a full path based on the location of the original script
@@ -319,6 +346,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Extract log output pattern from the script
             let log_pattern = extract_log_output_pattern(script_path)?;
+            
+            // Extract job name if present
+            let job_name = extract_job_name(script_path)?;
 
             // Submit the job
             println!("Submitting job...");
@@ -326,7 +356,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Job submitted with ID: {}", job_id);
 
             // Format the log file path
-            let log_filename = format_log_output_string(log_pattern, job_id);
+            let log_filename = format_log_output_string(log_pattern, job_id, job_name.as_ref());
             let log_path = logfile_string_to_path(script_path, log_filename, true)?;
             println!(
                 "[DEBUG] Will try to use {} as logfile path.",

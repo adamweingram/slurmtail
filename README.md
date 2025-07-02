@@ -71,10 +71,8 @@ Your SLURM batch script must include an output directive, such as:
 # Your job commands here
 ```
 
-The `%j` placeholder will be automatically replaced with the actual job ID.
-
-> [!NOTE]  
-> Support for templated job names in the output file (e.g., the `%x` in `output.%x.%j.log`) is not yet implemented. This will be added soon (probably).
+> [!NOTE]
+> The `%j` and `%x` placeholders will be automatically replaced with the actual job ID and job name, respectively.
 
 ## Options
 
