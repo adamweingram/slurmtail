@@ -329,9 +329,18 @@ fn test_resume_command() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{}{}", stdout, stderr);
+    
+    // Should indicate resuming but then timeout and fail
     assert!(
         combined.contains("Resuming monitoring"),
         "Should indicate resuming: {}",
+        combined
+    );
+    
+    // Should fail due to timeout
+    assert!(
+        !output.status.success(),
+        "Should fail due to timeout: {}",
         combined
     );
 }
@@ -447,6 +456,13 @@ fn test_resume_with_job_name_log() {
     assert!(
         combined.contains("test_job_name"),
         "Should show job name from log content: {}",
+        combined
+    );
+    
+    // Should fail due to timeout
+    assert!(
+        !output.status.success(),
+        "Should fail due to timeout: {}",
         combined
     );
 }

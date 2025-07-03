@@ -138,7 +138,7 @@ fn mon_logfile(
                 "[WARNING] Timed out after {} seconds with no new bytes read! Exiting.",
                 timeout
             );
-            break;
+            return Err("Timeout while monitoring - no new bytes read".into());
         } else {
             // No new data, wait a bit
             sleep(Duration::from_secs(1));
