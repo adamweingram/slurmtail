@@ -144,8 +144,6 @@ fn mon_logfile(
             sleep(Duration::from_secs(1));
         }
     }
-
-    Ok(())
 }
 
 // Function responsible for saving to a tiny file (somewhere) that allows resuming a given tail
