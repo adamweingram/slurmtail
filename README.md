@@ -28,7 +28,7 @@ The binary will be available at `target/release/slurmtail`. You can `cp` it to y
 ### Submit and Monitor a Job
 
 ```bash
-slurmtail run <script.sh> [--timeout SECONDS]
+slurmtail run <script.sh> [--timeout SECONDS] [--no-file-timeout]
 ```
 
 This will:
@@ -41,9 +41,9 @@ This will:
 ### Resume Monitoring
 
 ```bash
-slurmtail resume [--timeout SECONDS]
+slurmtail resume [--timeout SECONDS] [--no-file-timeout]
 # or
-slurmtail r [--timeout SECONDS]
+slurmtail r [--timeout SECONDS] [--no-file-timeout]
 ```
 
 Resume monitoring a previously submitted job using the stored resume file.
@@ -77,6 +77,7 @@ Your SLURM batch script must include an output directive, such as:
 ## Options
 
 - `--timeout, -t`: Timeout in seconds for waiting for log file creation or monitoring inactivity (default: 120)
+- `--no-file-timeout, -n`: Disable timeout for waiting for the log file to appear (will wait indefinitely)
 
 ## Examples
 
@@ -87,8 +88,14 @@ slurmtail run my_job.sh
 # Submit with a longer timeout
 slurmtail run my_job.sh --timeout 300
 
+# Submit without file timeout (wait indefinitely for log file)
+slurmtail run my_job.sh --no-file-timeout
+
 # Resume monitoring a previous job
 slurmtail resume
+
+# Resume without file timeout
+slurmtail resume --no-file-timeout
 
 # Clean up resume files
 slurmtail clean

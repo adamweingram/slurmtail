@@ -9,8 +9,18 @@ use std::thread::sleep;
 use std::time::Duration;
 
 // Function responsible for monitoring ('tailing') a log file given to it
-fn mon_logfile(log_path: &Path, timeout_s: Option<u32>) -> Result<(), Box<dyn std::error::Error>> {
+fn mon_logfile(
+    log_path: &Path,
+    file_appear_timeout_s: Option<u32>,
+    timeout_s: Option<u32>,
+    no_file_timeout: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Handle args
+    let file_appear_timeout = if no_file_timeout {
+        i64::MAX // Effectively infinite timeout
+    } else {
+        file_appear_timeout_s.unwrap_or(120u32) as i64
+    };
     let timeout = timeout_s.unwrap_or(120u32) as i64;
 
     // Log start time
@@ -43,11 +53,11 @@ fn mon_logfile(log_path: &Path, timeout_s: Option<u32>) -> Result<(), Box<dyn st
             .until((Unit::Second, &time_now))
             .expect("[FATAL] Error while comparing times! Exiting.")
             .get_seconds()
-            > timeout
+            > file_appear_timeout
         {
             println!(
-                "[FATAL] File took to long to appear (longer than timeout of {} seconds). Exiting.",
-                timeout
+                "[FATAL] File took too long to appear (longer than timeout of {} seconds). Exiting.",
+                file_appear_timeout
             );
             return Err("Timeout waiting for log file".into());
         }
@@ -56,23 +66,23 @@ fn mon_logfile(log_path: &Path, timeout_s: Option<u32>) -> Result<(), Box<dyn st
     // Find the starting position for the last 150 lines (or beginning if fewer than 150 lines)
     let start_position = {
         let file_size = file.metadata()?.len();
-        
+
         if file_size == 0 {
             0
         } else {
             let mut newline_count = 0;
             let mut position = file_size;
             let mut buffer = [0u8; 8192]; // 8KB buffer
-            
+
             // Seek backwards to find the position where the last 150 lines start
             // We need to find 149 newlines to get to the start of the 150th line from the end
             while position > 0 && newline_count < 149 {
                 let chunk_size = std::cmp::min(buffer.len() as u64, position);
                 position -= chunk_size;
-                
+
                 file.seek(SeekFrom::Start(position))?;
                 file.read_exact(&mut buffer[0..chunk_size as usize])?;
-                
+
                 // Count newlines backwards in this chunk
                 for i in (0..chunk_size as usize).rev() {
                     if buffer[i] == b'\n' {
@@ -85,7 +95,7 @@ fn mon_logfile(log_path: &Path, timeout_s: Option<u32>) -> Result<(), Box<dyn st
                     }
                 }
             }
-            
+
             // If we reached the beginning and haven't found 149 newlines, start from the beginning
             if position == 0 && newline_count < 149 {
                 0
@@ -179,14 +189,14 @@ fn read_turd(project_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> 
 // Remove resume file if it exists
 fn clean_turd(project_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let turd_path: PathBuf = project_dir.to_path_buf().join("._slurmtail");
-    
+
     if turd_path.exists() {
         std::fs::remove_file(&turd_path)?;
         println!("Removed resume file: {:?}", turd_path);
     } else {
         println!("No resume file found to clean");
     }
-    
+
     Ok(())
 }
 
@@ -235,13 +245,17 @@ fn extract_job_name(script_path: &Path) -> Result<Option<String>, Box<dyn std::e
 }
 
 // Take a SLURM-formatted output path and format it using a known jobid and optional job name
-fn format_log_output_string(logfile_pattern_string: String, jobid: u64, job_name: Option<&String>) -> String {
+fn format_log_output_string(
+    logfile_pattern_string: String,
+    jobid: u64,
+    job_name: Option<&String>,
+) -> String {
     let mut result = logfile_pattern_string.replace("%j", &jobid.to_string());
-    
+
     if let Some(name) = job_name {
         result = result.replace("%x", name);
     }
-    
+
     result
 }
 
@@ -313,6 +327,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .short('t')
                         .long("timeout")
                         .value_parser(clap::value_parser!(u32)),
+                )
+                .arg(
+                    Arg::new("no-file-timeout")
+                        .help("Disable timeout for file appearance")
+                        .short('n')
+                        .long("no-file-timeout")
+                        .action(clap::ArgAction::SetTrue),
                 ),
         )
         .subcommand(
@@ -325,12 +346,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .short('t')
                         .long("timeout")
                         .value_parser(clap::value_parser!(u32)),
+                )
+                .arg(
+                    Arg::new("no-file-timeout")
+                        .help("Disable timeout for file appearance")
+                        .short('n')
+                        .long("no-file-timeout")
+                        .action(clap::ArgAction::SetTrue),
                 ),
         )
         .subcommand(
             Command::new("clean")
                 .about("Remove any existing resume files")
-                .alias("c")
+                .alias("c"),
         )
         .get_matches();
 
@@ -338,6 +366,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(("run", sub_matches)) => {
             let script_path = Path::new(sub_matches.get_one::<String>("script").unwrap());
             let timeout = sub_matches.get_one::<u32>("timeout").copied();
+            let no_file_timeout = sub_matches.get_flag("no-file-timeout");
 
             if !script_path.exists() {
                 eprintln!("Error: Script file does not exist: {:?}", script_path);
@@ -346,7 +375,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Extract log output pattern from the script
             let log_pattern = extract_log_output_pattern(script_path)?;
-            
+
             // Extract job name if present
             let job_name = extract_job_name(script_path)?;
 
@@ -369,16 +398,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Start monitoring
             println!("Monitoring log file: {:?}", log_path);
-            mon_logfile(&log_path, timeout)?;
+            mon_logfile(&log_path, timeout, timeout, no_file_timeout)?;
         }
         Some(("resume", sub_matches)) => {
             let timeout = sub_matches.get_one::<u32>("timeout").copied();
+            let no_file_timeout = sub_matches.get_flag("no-file-timeout");
             let current_dir = env::current_dir()?;
 
             match read_turd(&current_dir) {
                 Ok(log_path) => {
                     println!("Resuming monitoring of: {:?}", log_path);
-                    mon_logfile(&log_path, timeout)?;
+                    mon_logfile(&log_path, timeout, timeout, no_file_timeout)?;
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e);

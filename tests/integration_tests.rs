@@ -450,3 +450,61 @@ fn test_resume_with_job_name_log() {
         combined
     );
 }
+
+#[test]
+fn test_no_file_timeout_flag() -> Result<(), Box<dyn std::error::Error>> {
+    // Create temporary directory for this test
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let script_path = create_test_script(&temp_dir);
+
+    // Check if SLURM is available
+    let slurm_check = Command::new("sinfo").output();
+
+    if slurm_check.is_err() {
+        println!("SLURM not available, failing integration test");
+        return Err(Box::new(TestError::new("Slurm not available!")));
+    }
+
+    // Run slurmtail with no-file-timeout flag and very short timeout for monitoring
+    let output = Command::new(get_slurmtail_path())
+        .args(&[
+            "run",
+            script_path.to_str().unwrap(),
+            "--no-file-timeout",
+            "--timeout",
+            "5",
+        ])
+        .current_dir(temp_dir.path())
+        .output()
+        .expect("Failed to run slurmtail");
+
+    // Check the output to see if job was submitted successfully
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // If job submission failed (e.g., SLURM not available), skip this test
+    if stderr.contains("sbatch failed") || stderr.contains("No such file") {
+        println!("SLURM not available or test script failed, skipping test");
+        return Err("Slurm not available, or test script failed to submit to Slurm.".into());
+    }
+
+    // Job should have been submitted
+    assert!(
+        stdout.contains("Job submitted with ID:"),
+        "Should submit job successfully: stdout={}, stderr={}",
+        stdout,
+        stderr
+    );
+
+    // Should not contain file timeout message (since we're using --no-file-timeout)
+    // but might timeout on monitoring after 5 seconds
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(
+        !combined.contains("File took too long to appear")
+            || combined.contains("Timed out after 5 seconds"),
+        "Should not timeout on file appearance with --no-file-timeout flag: {}",
+        combined
+    );
+
+    Ok(())
+}
