@@ -14,6 +14,7 @@ fn mon_logfile(
     file_appear_timeout_s: Option<u32>,
     timeout_s: Option<u32>,
     no_file_timeout: bool,
+    no_bytes_timeout: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Handle args
     let file_appear_timeout = if no_file_timeout {
@@ -128,11 +129,12 @@ fn mon_logfile(
             // Print any new lines
             print!("{}", line);
             last_updated = time_now.clone();
-        } else if last_updated
-            .until((Unit::Second, &time_now))
-            .expect("Error while comparing times! Exiting.")
-            .get_seconds()
-            > timeout
+        } else if !no_bytes_timeout
+            && last_updated
+                .until((Unit::Second, &time_now))
+                .expect("Error while comparing times! Exiting.")
+                .get_seconds()
+                > timeout
         {
             println!(
                 "[WARNING] Timed out after {} seconds with no new bytes read! Exiting.",
@@ -312,6 +314,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .about("Submit SLURM jobs and monitor their log files")
         .subcommand(
             Command::new("run")
+                .alias("r")
                 .about("Run a SLURM batch script and monitor its output")
                 .arg(
                     Arg::new("script")
@@ -332,12 +335,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .short('n')
                         .long("no-file-timeout")
                         .action(clap::ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("no-bytes-timeout")
+                        .help("Disable timeout for file appearance")
+                        .short('b')
+                        .long("no-bytes-timeout")
+                        .action(clap::ArgAction::SetTrue),
                 ),
         )
         .subcommand(
             Command::new("resume")
                 .about("Resume monitoring a previously started job")
-                .alias("r")
+                .alias("m")
                 .arg(
                     Arg::new("timeout")
                         .help("Timeout in seconds (default: 120)")
@@ -350,6 +360,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .help("Disable timeout for file appearance")
                         .short('n')
                         .long("no-file-timeout")
+                        .action(clap::ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("no-bytes-timeout")
+                        .help("Disable timeout for file appearance")
+                        .short('b')
+                        .long("no-bytes-timeout")
                         .action(clap::ArgAction::SetTrue),
                 ),
         )
@@ -365,6 +382,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let script_path = Path::new(sub_matches.get_one::<String>("script").unwrap());
             let timeout = sub_matches.get_one::<u32>("timeout").copied();
             let no_file_timeout = sub_matches.get_flag("no-file-timeout");
+            let no_bytes_timeout = sub_matches.get_flag("no-bytes-timeout");
 
             if !script_path.exists() {
                 eprintln!("Error: Script file does not exist: {:?}", script_path);
@@ -396,17 +414,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Start monitoring
             println!("Monitoring log file: {:?}", log_path);
-            mon_logfile(&log_path, timeout, timeout, no_file_timeout)?;
+            mon_logfile(
+                &log_path,
+                timeout,
+                timeout,
+                no_file_timeout,
+                no_bytes_timeout,
+            )?;
         }
         Some(("resume", sub_matches)) => {
             let timeout = sub_matches.get_one::<u32>("timeout").copied();
             let no_file_timeout = sub_matches.get_flag("no-file-timeout");
+            let no_bytes_timeout = sub_matches.get_flag("no-bytes-timeout");
             let current_dir = env::current_dir()?;
 
             match read_turd(&current_dir) {
                 Ok(log_path) => {
                     println!("Resuming monitoring of: {:?}", log_path);
-                    mon_logfile(&log_path, timeout, timeout, no_file_timeout)?;
+                    mon_logfile(
+                        &log_path,
+                        timeout,
+                        timeout,
+                        no_file_timeout,
+                        no_bytes_timeout,
+                    )?;
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e);
@@ -419,7 +450,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             clean_turd(&current_dir)?;
         }
         _ => {
-            eprintln!("Use 'slurmtail run <script>', 'slurmtail resume', or 'slurmtail clean'");
+            eprintln!("Use 'sl run <script>', 'sl resume', or 'sl clean'");
             std::process::exit(1);
         }
     }

@@ -82,6 +82,33 @@ echo "Test job completed at $(date)"
     script_path
 }
 
+fn create_test_script_fast(temp_dir: &TempDir) -> std::path::PathBuf {
+    let script_content = r#"#!/usr/bin/env bash
+#SBATCH --job-name=slurmtail_test
+#SBATCH --output=test_output.%j.log
+#SBATCH --error=test_error.%j.log
+#SBATCH --time=00:01:00
+#SBATCH --ntasks=1
+
+echo "Test job started at $(date)"
+sleep 1
+echo "Test job completed at $(date)"
+"#;
+    let script_path = temp_dir.path().join("test_job.sh");
+    fs::write(&script_path, script_content).expect("Failed to create test script");
+
+    // Make executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).unwrap();
+    }
+
+    script_path
+}
+
 fn create_test_script_with_job_name(temp_dir: &TempDir) -> std::path::PathBuf {
     let script_content = r#"#!/usr/bin/env bash
 #SBATCH --job-name=test_job_name
@@ -329,14 +356,14 @@ fn test_resume_command() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{}{}", stdout, stderr);
-    
+
     // Should indicate resuming but then timeout and fail
     assert!(
         combined.contains("Resuming monitoring"),
         "Should indicate resuming: {}",
         combined
     );
-    
+
     // Should fail due to timeout
     assert!(
         !output.status.success(),
@@ -458,7 +485,7 @@ fn test_resume_with_job_name_log() {
         "Should show job name from log content: {}",
         combined
     );
-    
+
     // Should fail due to timeout
     assert!(
         !output.status.success(),
@@ -518,6 +545,64 @@ fn test_no_file_timeout_flag() -> Result<(), Box<dyn std::error::Error>> {
     assert!(
         !combined.contains("File took too long to appear")
             || combined.contains("Timed out after 5 seconds"),
+        "Should not timeout on file appearance with --no-file-timeout flag: {}",
+        combined
+    );
+
+    Ok(())
+}
+
+#[test]
+#[ignore] // TODO: update this test so that we can kill it (otherwise it runs forever without timeout)
+fn test_no_bytes_timeout_flag() -> Result<(), Box<dyn std::error::Error>> {
+    // Create temporary directory for this test
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let script_path = create_test_script_fast(&temp_dir);
+
+    // Check if SLURM is available
+    let slurm_check = Command::new("sinfo").output();
+
+    if slurm_check.is_err() {
+        println!("SLURM not available, failing integration test");
+        return Err(Box::new(TestError::new("Slurm not available!")));
+    }
+
+    // Run slurmtail with no-file-timeout flag and very short timeout for monitoring
+    let output = Command::new(get_slurmtail_path())
+        .args(&[
+            "run",
+            script_path.to_str().unwrap(),
+            "--no-file-timeout",
+            "--no-bytes-timeout",
+        ])
+        .current_dir(temp_dir.path())
+        .output()
+        .expect("Failed to run slurmtail");
+
+    // Check the output to see if job was submitted successfully
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // If job submission failed (e.g., SLURM not available), skip this test
+    if stderr.contains("sbatch failed") || stderr.contains("No such file") {
+        println!("SLURM not available or test script failed, skipping test");
+        return Err("Slurm not available, or test script failed to submit to Slurm.".into());
+    }
+
+    // Job should have been submitted
+    assert!(
+        stdout.contains("Job submitted with ID:"),
+        "Should submit job successfully: stdout={}, stderr={}",
+        stdout,
+        stderr
+    );
+
+    // Should not contain bytes timeout message (since we're using --no-bytes-timeout)
+    // Should not contain file timeout message (since we're using --no-file-timeout)
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(
+        !combined.contains("File took too long to appear")
+            && !combined.contains("[WARNING] Timed out after"),
         "Should not timeout on file appearance with --no-file-timeout flag: {}",
         combined
     );
