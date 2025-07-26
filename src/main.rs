@@ -338,7 +338,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .arg(
                     Arg::new("no-bytes-timeout")
-                        .help("Disable timeout for file appearance")
+                        .help("Disable timeout for new bytes being written to monitored file")
                         .short('b')
                         .long("no-bytes-timeout")
                         .action(clap::ArgAction::SetTrue),
@@ -364,7 +364,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .arg(
                     Arg::new("no-bytes-timeout")
-                        .help("Disable timeout for file appearance")
+                        .help("Disable timeout for new bytes being written to monitored file")
                         .short('b')
                         .long("no-bytes-timeout")
                         .action(clap::ArgAction::SetTrue),
